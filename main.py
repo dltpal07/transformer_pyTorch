@@ -5,6 +5,7 @@ import random
 import shutil
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
@@ -14,35 +15,67 @@ import numpy as np
 from pathlib import Path
 
 import utils, dataloader
-from transformer.transformer import Transformer
-from optimizer import transformer_schedul_with_warmup
+from model.transformer import Transformer
 from torch.optim import SGD, Adam
 try:
     from torch.utils.tensorboard import SummaryWriter
 except ImportError:
     from tensorboardX import SummaryWriter
 
-device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
+parser = argparse.ArgumentParser(description='NMT - Transformer')
+""" recommend to use default settings """
+
+# environmental settings
+parser.add_argument('--gpu_id', type=int, default=0)
+parser.add_argument('--seed', type=int, default=0)
+parser.add_argument('--save', action='store_true', default=0)
+
+# architecture
+parser.add_argument('--num_enc_layers', type=int, default=6, help='Number of Encoder layers')
+parser.add_argument('--num_dec_layers', type=int, default=6, help='Number of Decoder layers')
+parser.add_argument('--num_token', type=int, help='Number of Tokens')
+parser.add_argument('--max_len', type=int, default=20)
+parser.add_argument('--model_dim', type=int, default=512, help='Dimension size of model dimension')
+parser.add_argument('--hidden_size', type=int, default=2048, help='Dimension size of hidden states')
+parser.add_argument('--d_k', type=int, default=64, help='Dimension size of Key and Query')
+parser.add_argument('--d_v', type=int, default=64, help='Dimension size of Value')
+parser.add_argument('--n_head', type=int, default=8, help='Number of multi-head Attention')
+parser.add_argument('--d_prob', type=float, default=0.1, help='Dropout probability')
+parser.add_argument('--max_norm', type=float, default=5.0)
+
+# hyper-parameters
+parser.add_argument('--n_epochs', type=int, default=100)
+parser.add_argument('--batch_size', type=int, default=128)
+parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--beta1', type=float, default=0.9, help='Beta1 hyper-parameter for Adam optimizer')
+parser.add_argument('--beta2', type=float, default=0.98, help='Beta2 hyper-parameter for Adam optimizer')
+parser.add_argument('--eps', type=float, default=1e-9, help='Epsilon hyper-parameter for Adam optimizer')
+parser.add_argument('--weight_decay', type=float, default=1e-4)
+parser.add_argument('--teacher-forcing', action='store_true', default=False)
+parser.add_argument('--warmup_steps', type=int, default=78, help='Warmup step for scheduler')
+parser.add_argument('--logging_steps', type=int, default=500, help='Logging step for tensorboard')
+# etc
+parser.add_argument('--k', type=int, default=4, help='hyper-paramter for BLEU score')
+
+args = parser.parse_args()
+
+device = torch.device(f"cuda:{args.gpu_id}" if torch.cuda.is_available() else 'cpu')
 
 
 def train(dataloader, epochs, model, criterion, args, vocab, i2w):
-
-	"""
-	Todo: Set your optimizer
-	"""
-
 	model.train()
 	model.zero_grad()
+	optimizer = Adam(model.parameters(), lr=args.lr)
 	correct = 0
 
 	cnt = 0
 	total_score = 0.
 	global_step = 0
+	tr_loss = 0.
 	for epoch in range(epochs):
 
 		for idx, (src, tgt) in enumerate(dataloader):
 			src, tgt = src.to(device), tgt.to(device)
-
 			"""
 			ToDo: feed the input to model
 			src.size() : [batch, max length]
@@ -52,26 +85,32 @@ def train(dataloader, epochs, model, criterion, args, vocab, i2w):
 			But when you change it, please left comments.
 			If model is run by your code and works well, you will get points.
 			"""
+			optimizer.zero_grad()
 
+			outputs = model(src, tgt[:, :-1])
+			#outputs = outputs[:, :-1]
+			tgt = tgt[:, 1:]
 
+			tgt = torch.flatten(tgt)
+			outputs = outputs.reshape(len(tgt), -1)
 			loss = criterion(outputs, tgt)
 			tr_loss += loss.item()
 
 			loss.backward()
 			torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
 			optimizer.step()
-			model.zero_grad()
 			global_step += 1
 
-			pred =  outputs.argmax(dim=1, keepdim=True)
+			pred = outputs.argmax(dim=1, keepdim=True)
 			pred_acc = pred[tgt != 2]
 			tgt_acc = tgt[tgt != 2]
+
 			correct += pred_acc.eq(tgt_acc.view_as(pred_acc)).sum().item()
 
 			cnt += tgt_acc.shape[0]
 			score = 0.
 
-			model.eval()
+			# model.eval()
 			with torch.no_grad():
 				pred = pred.reshape(args.batch_size, args.max_len, -1).detach().cpu().tolist()
 				tgt = tgt.reshape(args.batch_size, args.max_len).detach().cpu().tolist()
@@ -110,7 +149,6 @@ def eval(dataloader, model, args, lengths=None):
 		cnt = 0.
 		for src, tgt in dataloader:
 			src, tgt = src.to(device), tgt.to(device)
-
 			"""
 			ToDo: feed the input to model
 			src.size() : [batch, max length]
@@ -119,52 +157,21 @@ def eval(dataloader, model, args, lengths=None):
 			These codes are one of the example to train model, so changing codes are acceptable.
 			If model is run by your code and works well, you will get points.
 			"""
+			outputs = model(src, tgt, False)
 			for i in range(outputs.shape[0]):
+				total_pred.append(torch.argmax(outputs[i, :lengths[idx]], dim=-1).cpu())
+				idx += 1
 				"""
 				ToDo: Output (total_pred) is the model predict of test dataset
 				Variable lenghts is the length information of the target length.
 				"""
 	print(total)
 	total_pred = np.concatenate(total_pred)
+	print(total_pred.shape)
 	return total_pred
 
 def main():
-	parser = argparse.ArgumentParser(description='NMT - Transformer')
-	""" recommend to use default settings """
 
-	# environmental settings
-	parser.add_argument('--gpu_id', type=int, default=0)
-	parser.add_argument('--seed', type=int, default=0)
-	parser.add_argument('--save', action='store_true', default=0)
-
-	# architecture
-	parser.add_argument('--num_enc_layers', type=int, default=6, help='Number of Encoder layers')
-	parser.add_argument('--num_dec_layers', type=int, default=6, help='Number of Decoder layers')
-	parser.add_argument('--num_token', type=int, help='Number of Tokens')
-	parser.add_argument('--max_len', type=int, default=20)
-	parser.add_argument('--model_dim', type=int, default=512, help='Dimension size of model dimension')
-	parser.add_argument('--hidden_size', type=int, default=2048, help='Dimension size of hidden states')
-	parser.add_argument('--d_k', type=int, default=64, help='Dimension size of Key and Query')
-	parser.add_argument('--d_v', type=int, default=64, help='Dimension size of Value')
-	parser.add_argument('--n_head', type=int, default=8, help='Number of multi-head Attention')
-	parser.add_argument('--d_prob', type=float, default=0.1, help='Dropout probability')
-	parser.add_argument('--max_norm', type=float, default=5.0)
-
-	# hyper-parameters
-	parser.add_argument('--n_epochs', type=int, default=100)
-	parser.add_argument('--batch_size', type=int, default=128)
-	parser.add_argument('--lr', type=float, default=0.001)
-	parser.add_argument('--beta1', type=float, default=0.9, help='Beta1 hyper-parameter for Adam optimizer')
-	parser.add_argument('--beta2', type=float, default=0.98, help='Beta2 hyper-parameter for Adam optimizer')
-	parser.add_argument('--eps', type=float, default=1e-9, help='Epsilon hyper-parameter for Adam optimizer')
-	parser.add_argument('--weight_decay', type=float, default=1e-4)
-	parser.add_argument('--teacher-forcing', action='store_true', default=False)
-	parser.add_argument('--warmup_steps', type=int, default=78, help='Warmup step for scheduler')
-	parser.add_argument('--logging_steps', type=int, default=500, help='Logging step for tensorboard')
-	# etc
-	parser.add_argument('--k', type=int, default=4, help='hyper-paramter for BLEU score')
-
-	args = parser.parse_args()
 
 	utils.set_random_seed(args)
 	tr_dataset = dataloader.NMTSimpleDataset(max_len=args.max_len,
@@ -181,10 +188,8 @@ def main():
 
 	vocab = tr_dataset.vocab
 	i2w = {v: k for k, v in vocab.items()}
-
 	tr_dataloader = DataLoader(tr_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=2)
 	ts_dataloader = DataLoader(ts_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False, num_workers=2)
-
 	args.num_token = len(tr_dataset.vocab)
 
 	model = Transformer(num_token=args.num_token,

@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 from model.utils import pad_mask, masked_attn_mask
@@ -25,7 +24,36 @@ class Transformer(nn.Module):
         ToDo: feed the input to Encoder and Decoder
         """
 
-        return
+        positional_encoded_src = self.embed(src)
+        if teacher_forcing:
+            positional_encoded_tgt = self.embed(tgt)
+        else:
+            positional_encoded_tgt = self.embed.emb(tgt)
+        src_pad_mask = torch.where(src==2, 0., 1.)
+        src_pad_mask = src_pad_mask.unsqueeze(-1)
+        src_pad_mask = torch.bmm(src_pad_mask, src_pad_mask.transpose(-1, -2))
+
+        if teacher_forcing:
+            tgt_pad_mask = torch.where(tgt==2, 0., 1.)
+            tgt_pad_mask = tgt_pad_mask.unsqueeze(-1)
+            tgt_pad_mask = torch.bmm(tgt_pad_mask, tgt_pad_mask.transpose(-1, -2))
+            tgt_src_pad_mask = torch.bmm(tgt_pad_mask, src_pad_mask.transpose(-1, -2))
+
+        enc_output = self.encoder(positional_encoded_src, src_pad_mask.bool())
+
+        if teacher_forcing:
+            dec_output = self.decoder(positional_encoded_tgt, enc_output, tgt_pad_mask.bool(), tgt_src_pad_mask.bool())
+            outputs = self.softmax(self.linear(dec_output))
+        else:
+            outputs = []
+            cur_tgt = positional_encoded_tgt[:,0].unsqueeze(1)
+            for i in range(self.max_seq_len):
+                dec_output = self.decoder(cur_tgt, enc_output)
+                cur_tgt = dec_output
+                dec_output = self.softmax(self.linear(dec_output))
+                outputs.append(dec_output)
+            outputs = torch.cat(outputs, dim=1)
+        return outputs
 
     def init_weights(self):
         for n, p in self.named_parameters():
