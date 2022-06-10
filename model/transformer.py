@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from model.utils import pad_mask, masked_attn_mask
 from model.sub_layers import Embedding_Layer, Encoder, Decoder
 device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
 class Transformer(nn.Module):
