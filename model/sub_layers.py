@@ -11,7 +11,7 @@ class Embedding_Layer(nn.Module):
         self.max_seq_len = max_seq_len
         self.d_prob = d_prob
         self.emb = nn.Embedding(num_token, dim_model)
-
+        self.drop_out = nn.Dropout(d_prob)
         pos_enc = torch.zeros((self.max_seq_len, self.dim_model))
         for pos in range(self.max_seq_len):
             for idx in range(0, self.dim_model, 2):
@@ -23,6 +23,8 @@ class Embedding_Layer(nn.Module):
     def forward(self, x):
         x = self.emb(x) * math.sqrt(self.dim_model)
         x += self.pos_enc
+        x = self.drop_out(x)
+
         return x
 
 
@@ -90,7 +92,6 @@ class MaskedScaledDotProductAttention(nn.Module):
             scaled_dot_product = scaled_dot_product.masked_fill(mask==False, -1e9)
             scaled_dot_product = scaled_dot_product.masked_fill(pad_mask==False, -1e9)
         reg_scaled_dot_product = self.softmax(scaled_dot_product)
-        #print(reg_scaled_dot_product[0])
         reg_scaled_dot_product = self.drop_out(reg_scaled_dot_product)
         scaled_dot_product_attn = torch.matmul(reg_scaled_dot_product, x_v)
         return scaled_dot_product_attn
@@ -226,10 +227,6 @@ class Decoder(nn.Module):
         self.n_dec_layer = n_dec_layer
 
         self.dec_layers = nn.ModuleList([DecoderLayer(dim_model, d_k, d_v, n_head, dim_hidden, d_prob) for _ in range(n_dec_layer)])
-        # layers = []
-        # for i in range(6):
-        #     layers.append(DecoderLayer(dim_model, d_k, d_v, n_head, dim_hidden, d_prob))
-        # self.dec_layers = nn.ModuleList(layers)
 
     def forward(self, x, enc_output, tgt_pad_mask=None, src_tgt_pad_mask=None):
         for layer in self.dec_layers:

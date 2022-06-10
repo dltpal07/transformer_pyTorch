@@ -8,7 +8,7 @@ def output2csv(pred_y, file_name=os.path.join(result_path, 'sent_class.pred.csv'
     os.makedirs(result_path, exist_ok=True)
     with open(file_name, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(['id', 'pred'])
+        writer.writerow(['id', 'label'])
         for i, p in enumerate(pred_y):
             y_id = str(i)
             if len(y_id) < 5:

@@ -167,7 +167,6 @@ def eval(dataloader, model, args, lengths=None):
 				"""
 	print(total)
 	total_pred = np.concatenate(total_pred)
-	print(total_pred.shape)
 	return total_pred
 
 def main():
