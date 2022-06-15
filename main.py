@@ -65,7 +65,7 @@ device = torch.device(f"cuda:{args.gpu_id}" if torch.cuda.is_available() else 'c
 def train(dataloader, epochs, model, criterion, args, vocab, i2w):
 	model.train()
 	model.zero_grad()
-	optimizer = Adam(model.parameters(), lr=args.lr)
+	optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, betas=(args.beta1, args.beta2), eps=args.eps)
 	correct = 0
 
 	cnt = 0
@@ -88,7 +88,6 @@ def train(dataloader, epochs, model, criterion, args, vocab, i2w):
 			optimizer.zero_grad()
 
 			outputs = model(src, tgt[:, :-1])
-			#outputs = outputs[:, :-1]
 			tgt = tgt[:, 1:]
 
 			tgt = torch.flatten(tgt)

@@ -20,9 +20,12 @@ class Embedding_Layer(nn.Module):
 
         self.register_buffer('pos_enc', pos_enc)
 
-    def forward(self, x):
+    def forward(self, x, pos=None):
         x = self.emb(x) * math.sqrt(self.dim_model)
-        x += self.pos_enc
+        if pos == None:
+            x += self.pos_enc
+        else:
+            x += self.pos_enc[pos]
         x = self.drop_out(x)
 
         return x
